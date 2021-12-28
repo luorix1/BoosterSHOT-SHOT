@@ -12,6 +12,7 @@ import torch.optim as optim
 import torchvision.transforms as T
 from multiview_detector.datasets import *
 from multiview_detector.loss.gaussian_mse import GaussianMSE
+from multiview_detector.models.intrinsic_dpersp_trans_detector import IDPerspTransDetector
 from multiview_detector.models.dpersp_trans_detector import DPerspTransDetector
 from multiview_detector.models.persp_trans_detector import PerspTransDetector
 from multiview_detector.models.image_proj_variant import ImageProjVariant
@@ -59,6 +60,8 @@ def main(args):
     # model
     if args.variant == 'default':
         model = DPerspTransDetector(train_set, args.arch, args.depth_scales)
+    elif args.variant == 'custom':
+        model = IDPerspTransDetector(train_set, args.arch, args.depth_scales)
     elif args.variant == 'per':
         model = PerspTransDetector(train_set, args.arch)
     elif args.variant == 'img_proj':
@@ -104,7 +107,7 @@ def main(args):
     test_prec_s = []
     test_moda_s = []
 
-    if args.variant == 'default':
+    if args.variant == 'default' or 'custom':
         trainer = DPerspectiveTrainer(model, criterion, logdir, denormalize, args, args.cls_thres, args.alpha)
     else:
         trainer = PerspectiveTrainer(model, criterion, logdir, denormalize, args.cls_thres, args.alpha)
@@ -147,7 +150,7 @@ if __name__ == '__main__':
     parser.add_argument('--cls_thres', type=float, default=0.4)
     parser.add_argument('--alpha', type=float, default=1.0, help='ratio for per view loss')
     parser.add_argument('--variant', type=str, default='default',
-                        choices=['default', 'per', 'img_proj', 'res_proj', 'no_joint_conv'])
+                        choices=['default', 'custom', 'per', 'img_proj', 'res_proj', 'no_joint_conv'])
     parser.add_argument('--arch', type=str, default='resnet18', choices=['vgg11', 'resnet18'])
     parser.add_argument('-d', '--dataset', type=str, default='wildtrack', choices=['wildtrack', 'multiviewx'])
     parser.add_argument('-j', '--num_workers', type=int, default=4)
