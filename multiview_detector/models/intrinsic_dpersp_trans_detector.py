@@ -68,11 +68,13 @@ class IDPerspTransDetector(nn.Module):
         # 2.5cm -> 0.5m: 20x
         self.img_classifier = nn.Sequential(nn.Conv2d(out_channel, 64, 1), nn.ReLU(),
                                             nn.Conv2d(64, 2, 1, bias=False)).to('cuda:0')
+
+        self.down_output = 256
         self.feat_down = nn.Sequential(
             nn.Conv2d(out_channel, 128, 3, padding=2, dilation=2), nn.ReLU(),
-            nn.Conv2d(128, 128, 3, padding=2, dilation=2)).to('cuda:0')
+            nn.Conv2d(128, self.down_output, 3, padding=2, dilation=2)).to('cuda:0')
 
-        out_channel = 128
+        out_channel = self.down_output
 
         self.feat_before_merge = nn.ModuleDict({
             f'{i}': nn.Conv2d(out_channel // self.depth_scales, out_channel, 3, padding=1)
@@ -115,7 +117,7 @@ class IDPerspTransDetector(nn.Module):
         depth_select = self.depth_classifier(
             img_feature_all).softmax(dim=1)  # [b*n,d,h,w]
         for i in range(self.depth_scales):
-            in_feat = img_feature_all[:, 128 // self.depth_scales * i : 128 // self.depth_scales * (i + 1), :, :] * depth_select[:, i][:, None]
+            in_feat = img_feature_all[:, self.down_output // self.depth_scales * i : self.down_output // self.depth_scales * (i + 1), :, :] * depth_select[:, i][:, None]
             out_feat = kornia.warp_perspective(
                 in_feat, self.proj_mats[i], self.reducedgrid_shape)
             # [b*n,c,h,w]
