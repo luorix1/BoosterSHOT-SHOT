@@ -77,7 +77,7 @@ class IDPerspTransDetector(nn.Module):
         out_channel = self.down_output
 
         self.feat_before_merge = nn.ModuleDict({
-            f'{i}': nn.Conv2d(out_channel // self.depth_scales, out_channel, 3, padding=1)
+            f'{i}': nn.Conv2d(out_channel // self.depth_scales, out_channel // self.depth_scales, 3, padding=1)
             # f'{i}': nn.Conv2d(out_channel+1, out_channel, 3, padding=1)
             for i in range(self.depth_scales)
         }).to('cuda:0')
@@ -114,14 +114,15 @@ class IDPerspTransDetector(nn.Module):
     def warp_perspective(self, img_feature_all):
         warped_feat = 0
         img_feature_all = self.feat_down(img_feature_all)
-        depth_select = self.depth_classifier(
-            img_feature_all).softmax(dim=1)  # [b*n,d,h,w]
         for i in range(self.depth_scales):
-            in_feat = img_feature_all[:, self.down_output // self.depth_scales * i : self.down_output // self.depth_scales * (i + 1), :, :] * depth_select[:, i][:, None]
+            in_feat = img_feature_all[:, self.down_output // self.depth_scales * i : self.down_output // self.depth_scales * (i + 1), :, :]
             out_feat = kornia.warp_perspective(
                 in_feat, self.proj_mats[i], self.reducedgrid_shape)
             # [b*n,c,h,w]
-            warped_feat += self.feat_before_merge[f'{i}'](out_feat)
+            if i == 0:
+                warped_feat = self.feat_before_merge[f'{i}'](out_feat)
+            else:
+                warped_feat = torch.cat((warped_feat, self.feat_before_merge[f'{i}'](out_feat)), dim=1)
         return warped_feat
 
     def forward(self, imgs, imgs_gt=None, map_gt=None, alpha=0, visualize=False):
