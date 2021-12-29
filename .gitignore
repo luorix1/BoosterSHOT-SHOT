@@ -1,5 +1,6 @@
 # directories
 /logs
+/multiview_detector/__pycache__/
 
 # file types
 *.pyc
