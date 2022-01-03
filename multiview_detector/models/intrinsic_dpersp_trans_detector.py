@@ -60,8 +60,8 @@ class IDPerspTransDetector(nn.Module):
             base = nn.Sequential(*list(resnet18(
                 replace_stride_with_dilation=[False, True, True]).children())[:-2])
             split = 7
-            self.base_pt1 = base[:split].to('cuda:0')
-            self.base_pt2 = base[split:].to('cuda:0')
+            self.base_pt1 = base[:split].to('cuda:1')
+            self.base_pt2 = base[split:].to('cuda:1')
             out_channel = 512
         else:
             raise Exception('architecture currently support [vgg11, resnet18]')
@@ -72,7 +72,8 @@ class IDPerspTransDetector(nn.Module):
         self.down_output = 256
         self.feat_down = nn.Sequential(
             nn.Conv2d(out_channel, 128, 3, padding=2, dilation=2), nn.ReLU(),
-            nn.Conv2d(128, self.down_output, 3, padding=2, dilation=2)).to('cuda:0')
+            nn.Conv2d(128, self.down_output * 2, 3, padding=2, dilation=2)).to('cuda:0')
+        self.group_norm = nn.Sequential(nn.GroupNorm(self.depth_scales, self.down_output)).to('cuda:0')
 
         out_channel = self.down_output
 
@@ -93,7 +94,7 @@ class IDPerspTransDetector(nn.Module):
                                             nn.Conv2d(512, 1, 3, padding=4,  dilation=4, bias=False)).to('cuda:0')
 
         self.depth_classifier = nn.Sequential(nn.Conv2d(out_channel, 64, 1), nn.ReLU(),
-                                              nn.Conv2d(64, self.depth_scales, 1, bias=False)).to('cuda:0')
+                                            nn.Conv2d(64, self.depth_scales, 1, bias=False)).to('cuda:0')
 
         self.coord_map = nn.Parameter(self.coord_map, False).to('cuda:0')
         self.trans_img = nn.Sequential(nn.AdaptiveAvgPool2d(
@@ -114,8 +115,11 @@ class IDPerspTransDetector(nn.Module):
     def warp_perspective(self, img_feature_all):
         warped_feat = 0
         img_feature_all = self.feat_down(img_feature_all)
+        input_size = img_feature_all.shape[1] // 2
+        depth_select = self.depth_classifier(img_feature_all[:,input_size: , :, :]).softmax(dim=1)
+        # local features
         for i in range(self.depth_scales):
-            in_feat = img_feature_all[:, self.down_output // self.depth_scales * i : self.down_output // self.depth_scales * (i + 1), :, :]
+            in_feat = img_feature_all[:, input_size // self.depth_scales * i : input_size // self.depth_scales * (i + 1), :, :]
             out_feat = kornia.warp_perspective(
                 in_feat, self.proj_mats[i], self.reducedgrid_shape)
             # [b*n,c,h,w]
@@ -123,13 +127,24 @@ class IDPerspTransDetector(nn.Module):
                 warped_feat = self.feat_before_merge[f'{i}'](out_feat)
             else:
                 warped_feat = torch.cat((warped_feat, self.feat_before_merge[f'{i}'](out_feat)), dim=1)
+        # apply Group Normalization to local feature output
+        warped_feat = self.group_norm(warped_feat)
+
+        # global features
+        for i in range(self.depth_scales):
+            in_feat = img_feature_all[:, input_size:, :, :] * depth_select[:, i][:, None]
+            out_feat = kornia.warp_perspective(
+                in_feat, self.proj_mats[i], self.reducedgrid_shape)
+            # [b*n,c,h,w]
+            warped_feat += out_feat
+
         return warped_feat
 
     def forward(self, imgs, imgs_gt=None, map_gt=None, alpha=0, visualize=False):
         # implemented assuming B=1
         B, N, C, H, W = imgs.shape
-        img_feature_all = self.base_pt1(imgs.view([-1, C, H, W]).to('cuda:0'))
-        img_feature_all = self.base_pt2(img_feature_all.to('cuda:0'))
+        img_feature_all = self.base_pt1(imgs.view([-1, C, H, W]).to('cuda:1'))
+        img_feature_all = self.base_pt2(img_feature_all.to('cuda:1'))
         img_feature_all = F.interpolate(
             img_feature_all, self.upsample_shape, mode='bilinear').to('cuda:0')
         imgs_result = self.img_classifier(img_feature_all)
