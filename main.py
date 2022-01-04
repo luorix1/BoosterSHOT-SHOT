@@ -12,6 +12,7 @@ import torch.optim as optim
 import torchvision.transforms as T
 from multiview_detector.datasets import *
 from multiview_detector.loss.gaussian_mse import GaussianMSE
+from multiview_detector.models.res_dpersp_trans_detector import RDPerspTransDetector
 from multiview_detector.models.intrinsic_dpersp_trans_detector import IDPerspTransDetector
 from multiview_detector.models.dpersp_trans_detector import DPerspTransDetector
 from multiview_detector.models.persp_trans_detector import PerspTransDetector
@@ -61,7 +62,8 @@ def main(args):
     if args.variant == 'default':
         model = DPerspTransDetector(train_set, args.arch, args.depth_scales)
     elif args.variant == 'custom':
-        model = IDPerspTransDetector(train_set, args.arch, args.depth_scales)
+        model = RDPerspTransDetector(train_set, args.arch, args.depth_scales, args.down_output, args.use_local, args.use_global, args.use_GN, args.use_SSM)
+        # model = IDPerspTransDetector(train_set, args.arch, args.depth_scales)
     elif args.variant == 'per':
         model = PerspTransDetector(train_set, args.arch)
     elif args.variant == 'img_proj':
@@ -170,6 +172,11 @@ if __name__ == '__main__':
     parser.add_argument('--logdir', type=str, default=None)
     parser.add_argument('--load', type=str, default=None)
     parser.add_argument('--no_matlab', type=int, default=0)
+    parser.add_argument('--down_output', type=int, default=256)
+    parser.add_argument('--use_local', action='store_true')
+    parser.add_argument('--use_global', action='store_true')
+    parser.add_argument('--use_GN', action='store_true')
+    parser.add_argument('--use_SSM', action='store_true')
     args = parser.parse_args()
 
     main(args)
