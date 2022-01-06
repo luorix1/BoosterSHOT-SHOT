@@ -11,9 +11,8 @@ import matplotlib.pyplot as plt
 
 
 class RDPerspTransDetector(nn.Module):
-    def __init__(self, dataset, arch='resnet18', depth_scales=4, down_output=256, use_local=True, use_global=True, use_GN=True, use_SSM=True):
+    def __init__(self, dataset, arch='resnet18', depth_scales=4, use_local=True, use_global=True, use_GN=True, use_SSM=True):
         super().__init__()
-        self.down_output = down_output
         self.use_local = use_local
         self.use_global = use_global
         self.use_GN = use_GN
@@ -77,17 +76,16 @@ class RDPerspTransDetector(nn.Module):
         # The feat_down network 
         self.feat_down = nn.Sequential(
             nn.Conv2d(out_channel, 128, 3, padding=2, dilation=2), nn.ReLU(),
-            nn.Conv2d(128, down_output * 2 if self.use_local and self.use_global else down_output, 3, padding=2, dilation=2)).to('cuda:0')
+            # 256 and 128 in second Conv2d should be refactored to be controlled by a single variable like the out_channel instances that come afterwards
+            nn.Conv2d(128, 256 if self.use_local and self.use_global else 128, 3, padding=2, dilation=2)).to('cuda:0')
 
-        out_channel = down_output
+        out_channel = 128
 
         self.feat_before_merge_local = nn.ModuleDict({
             f'{i}': nn.Conv2d(out_channel // depth_scales, out_channel // depth_scales, 3, padding=1)
             # f'{i}': nn.Conv2d(out_channel+1, out_channel, 3, padding=1)
             for i in range(self.depth_scales)
         }).to('cuda:0')
-
-        self.group_norm = nn.Sequential(nn.GroupNorm(self.depth_scales, self.down_output)).to('cuda:0')
 
         self.feat_before_merge_global = nn.ModuleDict({
             f'{i}': nn.Conv2d(out_channel, out_channel, 3, padding=1)
@@ -105,7 +103,7 @@ class RDPerspTransDetector(nn.Module):
                                             nn.Conv2d(512, 1, 3, padding=4,  dilation=4, bias=False)).to('cuda:0')
 
         # The depth_classifier network generates coefficients corresponding to the probability a plane should be chosen
-        self.depth_classifier = nn.Sequential(nn.Conv2d(out_channel, 64, 1), nn.ReLU(),
+        self.depth_classifier = nn.Sequential(nn.Conv2d(out_channel * 2 if self.use_local and self.use_global else out_channel, 64, 1), nn.ReLU(),
                                               nn.Conv2d(64, self.depth_scales, 1, bias=False)).to('cuda:0')
 
         self.coord_map = nn.Parameter(self.coord_map, False).to('cuda:0')
@@ -126,31 +124,46 @@ class RDPerspTransDetector(nn.Module):
     def warp_perspective(self, img_feature_all):
         warped_feat = 0
         img_feature_all = self.feat_down(img_feature_all)
-        input_size = img_feature_all.shape[1] // 2 if self.use_local and self.use_global else img_feature_all.shape[1]
+        C = img_feature_all.shape[1]
         depth_select = self.depth_classifier(img_feature_all).softmax(dim=1) # [b*n,d,h,w]
+
+        img_feature_global = img_feature_all
+        img_feature_local = img_feature_all
+
+        if self.use_global and self.use_local:
+            img_feature_global = img_feature_all[:,:C//2,:,:]
+            img_feature_local = img_feature_all[:,C//2:,:,:]
+
+        # "local" path
         if self.use_local:
+            S = img_feature_local.shape[1] // self.depth_scales
             for i in range(self.depth_scales):
-                in_feat = img_feature_all[:, input_size // self.depth_scales * i : input_size // self.depth_scales * (i + 1), :, :]
-                out_feat = kornia.warp_perspective(
-                    in_feat, self.proj_mats[i], self.reducedgrid_shape)
-                # [b*n,c,h,w]
+                in_feat = img_feature_local[:,i*S:(i+1)*S,:,:]
+                out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+                # for the first homography, re-initialize warped_feat with the output
                 if i == 0:
                     warped_feat = self.feat_before_merge_local[f'{i}'](out_feat)
                 else:
+                    # else, concatenate channel-wise
                     warped_feat = torch.cat((warped_feat, self.feat_before_merge_local[f'{i}'](out_feat)), dim=1)
+            # allow use of Group Normalization
+            if self.use_GN:
+                group_norm = nn.GroupNorm(self.depth_scales, img_feature_local.shape[1]).to('cuda:0')
+                warped_feat = group_norm(warped_feat)
         
-        if self.use_GN:
-            warped_feat = self.group_norm(warped_feat)
-
+        # "global" path
         if self.use_global:
+            # allow use of Soft Selection Module like in SHOT
             if self.use_SSM:
                 for i in range(self.depth_scales):
-                    in_feat = img_feature_all * depth_select[:,i][:,None]
+                    in_feat = img_feature_global * depth_select[:,i][:,None]
                     out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
                     warped_feat += self.feat_before_merge_global[f'{i}'](out_feat) # [b*n,c,h,w]
+            # otherwise, just use the ground plane homography like in MVDet
             else:
-                out_feat = kornia.warp_perspective(img_feature_all, self.proj_mats[0], self.reducedgrid_shape)
-                warped_feat += self.feat_before_merge_global[0](out_feat)
+                in_feat = img_feature_global
+                out_feat = kornia.warp_perspective(in_feat, self.proj_mats[0], self.reducedgrid_shape)
+                warped_feat += self.feat_before_merge_global['0'](out_feat)
 
         return warped_feat
 

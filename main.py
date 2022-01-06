@@ -62,7 +62,7 @@ def main(args):
     if args.variant == 'default':
         model = DPerspTransDetector(train_set, args.arch, args.depth_scales)
     elif args.variant == 'custom':
-        model = RDPerspTransDetector(train_set, args.arch, args.depth_scales, args.down_output, args.use_local, args.use_global, args.use_GN, args.use_SSM)
+        model = RDPerspTransDetector(train_set, args.arch, args.depth_scales, args.use_local, args.use_global, args.use_GN, args.use_SSM)
         # model = IDPerspTransDetector(train_set, args.arch, args.depth_scales)
     elif args.variant == 'per':
         model = PerspTransDetector(train_set, args.arch)
@@ -172,7 +172,6 @@ if __name__ == '__main__':
     parser.add_argument('--logdir', type=str, default=None)
     parser.add_argument('--load', type=str, default=None)
     parser.add_argument('--no_matlab', type=int, default=0)
-    parser.add_argument('--down_output', type=int, default=256)
     parser.add_argument('--use_local', action='store_true')
     parser.add_argument('--use_global', action='store_true')
     parser.add_argument('--use_GN', action='store_true')
