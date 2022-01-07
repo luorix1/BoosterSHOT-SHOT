@@ -103,7 +103,7 @@ class RDPerspTransDetector(nn.Module):
                                             nn.Conv2d(512, 1, 3, padding=4,  dilation=4, bias=False)).to('cuda:0')
 
         # The depth_classifier network generates coefficients corresponding to the probability a plane should be chosen
-        self.depth_classifier = nn.Sequential(nn.Conv2d(out_channel * 2 if self.use_local and self.use_global else out_channel, 64, 1), nn.ReLU(),
+        self.depth_classifier = nn.Sequential(nn.Conv2d(out_channel, 64, 1), nn.ReLU(),
                                               nn.Conv2d(64, self.depth_scales, 1, bias=False)).to('cuda:0')
 
         self.coord_map = nn.Parameter(self.coord_map, False).to('cuda:0')
@@ -125,14 +125,15 @@ class RDPerspTransDetector(nn.Module):
         warped_feat = 0
         img_feature_all = self.feat_down(img_feature_all)
         C = img_feature_all.shape[1]
-        depth_select = self.depth_classifier(img_feature_all).softmax(dim=1) # [b*n,d,h,w]
 
         img_feature_global = img_feature_all
         img_feature_local = img_feature_all
-
+        
         if self.use_global and self.use_local:
             img_feature_global = img_feature_all[:,:C//2,:,:]
             img_feature_local = img_feature_all[:,C//2:,:,:]
+
+        depth_select = self.depth_classifier(img_feature_global).softmax(dim=1) # [b*n,d,h,w]
 
         # "local" path
         if self.use_local:
