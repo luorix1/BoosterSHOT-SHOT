@@ -137,6 +137,10 @@ class RDPerspTransDetector(nn.Module):
 
         # "local" path
         if self.use_local:
+            # allow use of Group Normalization
+            if self.use_GN:
+                group_norm = nn.GroupNorm(self.depth_scales, img_feature_local.shape[1]).to('cuda:0')
+                img_feature_local = group_norm(img_feature_local)
             S = img_feature_local.shape[1] // self.depth_scales
             for i in range(self.depth_scales):
                 in_feat = img_feature_local[:,i*S:(i+1)*S,:,:]
@@ -147,10 +151,6 @@ class RDPerspTransDetector(nn.Module):
                 else:
                     # else, concatenate channel-wise
                     warped_feat = torch.cat((warped_feat, self.feat_before_merge_local[f'{i}'](out_feat)), dim=1)
-            # allow use of Group Normalization
-            if self.use_GN:
-                group_norm = nn.GroupNorm(self.depth_scales, img_feature_local.shape[1]).to('cuda:0')
-                warped_feat = group_norm(warped_feat)
         
         # "global" path
         if self.use_global:
