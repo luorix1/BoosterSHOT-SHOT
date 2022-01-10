@@ -16,6 +16,7 @@ class SRDPerspTransDetector(nn.Module):
         self.use_GN = use_GN
         self.depth_scales = depth_scales
         self.num_cam = dataset.num_cam
+        self.img_shape, self.reducedgrid_shape = dataset.img_shape, dataset.reducedgrid_shape
         imgcoord2worldgrid_matrices = self.get_imgcoord2worldgrid_matrices(dataset.base.intrinsic_matrices,
                                                                            dataset.base.extrinsic_matrices,
                                                                            dataset.base.worldgrid2worldcoord_mat,
