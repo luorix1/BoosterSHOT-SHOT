@@ -6,6 +6,7 @@ import shutil
 from distutils.dir_util import copy_tree
 import datetime
 import numpy as np
+import random
 import torch
 import torch.optim as optim
 import torchvision.transforms as T
@@ -29,11 +30,19 @@ from multiview_detector.d_trainer import DPerspectiveTrainer
 def main(args):
     # seed
     if args.seed is not None:
+        # fix seeds for numpy
         np.random.seed(args.seed)
+        
+        # fix seeds for PyTorch
         torch.manual_seed(args.seed)
-        # torch.backends.cudnn.deterministic = True
-        # torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.benchmark = True
+        
+        # fix seeds for cudnn
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        # torch.backends.cudnn.benchmark = True
+
+        # fix seeds for random
+        random.seed(args.seed)
     else:
         torch.backends.cudnn.benchmark = True
 
