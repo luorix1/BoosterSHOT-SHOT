@@ -55,8 +55,8 @@ class DPerspTransDetector(nn.Module):
             base = nn.Sequential(*list(resnet18(
                 replace_stride_with_dilation=[False, True, True]).children())[:-2])
             split = 7
-            self.base_pt1 = base[:split].to('cuda:1')
-            self.base_pt2 = base[split:].to('cuda:1')
+            self.base_pt1 = base[:split].to('cuda:0')
+            self.base_pt2 = base[split:].to('cuda:0')
             out_channel = 512
         else:
             raise Exception('architecture currently support [vgg11, resnet18]')
@@ -115,8 +115,8 @@ class DPerspTransDetector(nn.Module):
     def forward(self, imgs, imgs_gt=None, map_gt=None, alpha=0, visualize=False):
         # implemented assuming B=1
         B, N, C, H, W = imgs.shape
-        img_feature_all = self.base_pt1(imgs.view([-1,C,H,W]).to('cuda:1'))
-        img_feature_all = self.base_pt2(img_feature_all.to('cuda:1'))
+        img_feature_all = self.base_pt1(imgs.view([-1,C,H,W]).to('cuda:0'))
+        img_feature_all = self.base_pt2(img_feature_all.to('cuda:0'))
         img_feature_all = F.interpolate(img_feature_all, self.upsample_shape, mode='bilinear').to('cuda:0')
         imgs_result = self.img_classifier(img_feature_all)
         world_features = self.warp_perspective(img_feature_all)
