@@ -27,22 +27,20 @@ from multiview_detector.trainer import PerspectiveTrainer
 from multiview_detector.d_trainer import DPerspectiveTrainer
 
 
+# Credit: https://github.com/sberbank-ai/ru-dalle/blob/e96631a867fcadcfaa52eecb20b1e42b88aa4386/rudalle/utils.py
+def seed_everything(seed):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
 def main(args):
     # seed
     if args.seed is not None:
-        # fix seeds for numpy
-        np.random.seed(args.seed)
-        
-        # fix seeds for PyTorch
-        torch.manual_seed(args.seed)
-        
-        # fix seeds for cudnn
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        # torch.backends.cudnn.benchmark = True
-
-        # fix seeds for random
-        random.seed(args.seed)
+        seed_everything(args.seed)
     else:
         torch.backends.cudnn.benchmark = True
 
@@ -52,10 +50,10 @@ def main(args):
     train_trans = T.Compose([T.Resize([720, 1280]), T.ToTensor(), normalize, ])
     # change the following directories to fit your needs
     if 'wildtrack' in args.dataset:
-        data_path = os.path.expanduser('~/../../old_home/datasets/Data/Wildtrack')
+        data_path = '/data/Data/Wildtrack'
         base = Wildtrack(data_path)
     elif 'multiviewx' in args.dataset:
-        data_path = os.path.expanduser('~/../../old_home/datasets/Data/MultiviewX')
+        data_path = '/data/Data/MultiviewX'
         base = MultiviewX(data_path)
     else:
         raise Exception('must choose from [wildtrack, multiviewx]')

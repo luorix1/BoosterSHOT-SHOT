@@ -6,8 +6,8 @@ from multiview_detector.utils import projection
 from multiview_detector.datasets.Wildtrack import Wildtrack
 
 if __name__ == '__main__':
-    img = Image.open('/home/houyz/Data/Wildtrack/Image_subsets/C1/00000000.png')
-    dataset = Wildtrack('/home/houyz/Data/Wildtrack')
+    img = Image.open('/data/Data/Wildtrack/Image_subsets/C1/00000000.png')
+    dataset = Wildtrack('/data/Data/Wildtrack')
     xi = np.arange(0, 480, 40)
     yi = np.arange(0, 1440, 40)
     world_grid = np.stack(np.meshgrid(xi, yi, indexing='ij')).reshape([2, -1])
