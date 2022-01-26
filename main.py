@@ -34,8 +34,10 @@ def seed_everything(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = False
 
 def main(args):
     # seed
@@ -50,10 +52,10 @@ def main(args):
     train_trans = T.Compose([T.Resize([720, 1280]), T.ToTensor(), normalize, ])
     # change the following directories to fit your needs
     if 'wildtrack' in args.dataset:
-        data_path = '/data/Data/Wildtrack'
+        data_path = '/workspace/ABCDet/data/Wildtrack'
         base = Wildtrack(data_path)
     elif 'multiviewx' in args.dataset:
-        data_path = '/data/Data/MultiviewX'
+        data_path = '/workspace/ABCDet/data/MultiviewX'
         base = MultiviewX(data_path)
     else:
         raise Exception('must choose from [wildtrack, multiviewx]')
