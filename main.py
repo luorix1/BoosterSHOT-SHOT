@@ -90,9 +90,23 @@ def main(args):
         model.load_state_dict(torch.load(args.load))
         print(f'{args.load} loaded')
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, steps_per_epoch=len(train_loader),
-                                                    epochs=args.epochs)
+    # optimizer
+    if args.optimizer == 'SGD':
+        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    elif args.optimizer == 'Adam':
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        raise Exception('no support for this optimizer')
+
+    if args.scheduler == 'OneCycleLR':
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, steps_per_epoch=len(train_loader),
+                                                        epochs=args.epochs)
+    elif args.scheduler == 'MultiStepLR':
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epochs * 0.5), int(args.epochs * 0.8)], gamma=0.1)
+    elif args.scheduler == 'CyclicLR':
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, max_lr=args.lr, base_lr=args.base_lr, step_size_up = int(0.5 * len(train_loader) * args.epochs))
+    else:
+        raise Exception('no support for this scheduler')
 
     # loss
     criterion = GaussianMSE().cuda()
@@ -170,8 +184,11 @@ if __name__ == '__main__':
     parser.add_argument('-j', '--num_workers', type=int, default=4)
     parser.add_argument('-b', '--batch_size', type=int, default=1, metavar='N',
                         help='input batch size for training (default: 1)')
+    parser.add_argument('--optimizer', default='SGD', choices=['SGD', 'Adam'])
+    parser.add_argument('--scheduler', default='OneCycleLR', choices=['OneCycleLR', 'MultiStepLR', 'CyclicLR'])
     parser.add_argument('--epochs', type=int, default=10, metavar='N', help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.15, metavar='LR', help='learning rate (default: 0.1)')
+    parser.add_argument('--base_lr', type=float, default=0.001, help='optional minimum learning rate for CyclicLR (default: 0.001)')
     parser.add_argument('--weight_decay', type=float, default=5e-4)
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M', help='SGD momentum (default: 0.5)')
     parser.add_argument('--depth_scales', type=int, default=5)
