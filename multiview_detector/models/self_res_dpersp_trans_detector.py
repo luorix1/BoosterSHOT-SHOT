@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import kornia
 from torchvision.models.vgg import vgg11
 from multiview_detector.models.resnet import resnet18
+from multiview_detector.models.attn_module import ExpandedChannelGate
 
 import matplotlib.pyplot as plt
 
@@ -89,6 +90,15 @@ class SRDPerspTransDetector(nn.Module):
             # f'{i}': nn.Conv2d(out_channel+1, out_channel, 3, padding=1)
             for i in range(self.depth_scales)
         }).to('cuda:0')
+        
+        self.feat_before_merge = nn.ModuleDict({
+            f'{i}': nn.Conv2d(out_channel, out_channel, 3, padding=1)
+            # f'{i}': nn.Conv2d(out_channel+1, out_channel, 3, padding=1)
+            for i in range(self.depth_scales)
+        }).to('cuda:0')
+
+
+        self.channel_attn = ExpandedChannelGate(out_channel, depth_scales).to('cuda:0')
 
         self.map_classifier = nn.Sequential(nn.Conv2d(out_channel*self.num_cam+2, 512, 3, padding=1), nn.ReLU(),
                                             # # w/o large kernel
@@ -125,19 +135,24 @@ class SRDPerspTransDetector(nn.Module):
         depth_select = self.depth_classifier(img_feature_all).softmax(dim=1) # [b*n,d,h,w]
 
         # "local" path
-        S = img_feature_all.shape[1] // self.depth_scales
+        # S = img_feature_all.shape[1] // self.depth_scales
+        # for i in range(self.depth_scales):
+        #     # allow use of Group Normalization (apply before homographies to strengthen "local" aspect)
+        #     group_norm = nn.GroupNorm(self.depth_scales, img_feature_all.shape[1]).to('cuda:0')
+        #     in_feat = group_norm(img_feature_all)
+        #     in_feat = in_feat[:,i*S:(i+1)*S,:,:]
+        #     out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+        #     # for the first homography, re-initialize warped_feat with the output
+        #     if i == 0:
+        #         warped_feat = self.feat_before_merge_local[f'{i}'](out_feat)
+        #     else:
+        #         # else, concatenate channel-wise
+        #         warped_feat = torch.cat((warped_feat, self.feat_before_merge_local[f'{i}'](out_feat)), dim=1)
+        attn = self.channel_attn(img_feature_all)
         for i in range(self.depth_scales):
-            # allow use of Group Normalization (apply before homographies to strengthen "local" aspect)
-            group_norm = nn.GroupNorm(self.depth_scales, img_feature_all.shape[1]).to('cuda:0')
-            in_feat = group_norm(img_feature_all)
-            in_feat = in_feat[:,i*S:(i+1)*S,:,:]
+            in_feat = img_feature_all * attn[:, :, :, :, i]
             out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
-            # for the first homography, re-initialize warped_feat with the output
-            if i == 0:
-                warped_feat = self.feat_before_merge_local[f'{i}'](out_feat)
-            else:
-                # else, concatenate channel-wise
-                warped_feat = torch.cat((warped_feat, self.feat_before_merge_local[f'{i}'](out_feat)), dim=1)
+            warped_feat += self.feat_before_merge[f'{i}'](out_feat) # [b*n,c,h,w]
           
         # "global" path
         # allow use of Soft Selection Module like in SHOT
