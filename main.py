@@ -12,6 +12,7 @@ import torch.optim as optim
 import torchvision.transforms as T
 from multiview_detector.datasets import *
 from multiview_detector.loss.gaussian_mse import GaussianMSE
+from multiview_detector.models.boostershot import BoosterSHOT
 from multiview_detector.models.self_res_dpersp_trans_detector import SRDPerspTransDetector
 from multiview_detector.models.res_dpersp_trans_detector import RDPerspTransDetector
 # from multiview_detector.models.intrinsic_dpersp_trans_detector import IDPerspTransDetector
@@ -71,6 +72,8 @@ def main(args):
     # model
     if args.variant == 'default':
         model = DPerspTransDetector(train_set, args.arch, args.depth_scales)
+    elif args.variant == 'BoosterSHOT':
+        model = BoosterSHOT(train_set, args.arch, args.depth_scales)
     elif args.variant == 'self':
         model = SRDPerspTransDetector(train_set, args.arch, args.depth_scales, args.use_GN)
     elif args.variant == 'custom':
@@ -178,7 +181,7 @@ if __name__ == '__main__':
     parser.add_argument('--cls_thres', type=float, default=0.4)
     parser.add_argument('--alpha', type=float, default=1.0, help='ratio for per view loss')
     parser.add_argument('--variant', type=str, default='default',
-                        choices=['default', 'custom', 'self', 'per', 'img_proj', 'res_proj', 'no_joint_conv'])
+                        choices=['default', 'custom', 'self', 'per', 'img_proj', 'res_proj', 'no_joint_conv', 'BoosterSHOT'])
     parser.add_argument('--arch', type=str, default='resnet18', choices=['vgg11', 'resnet18'])
     parser.add_argument('-d', '--dataset', type=str, default='wildtrack', choices=['wildtrack', 'multiviewx'])
     parser.add_argument('-j', '--num_workers', type=int, default=4)
