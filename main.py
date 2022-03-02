@@ -53,10 +53,10 @@ def main(args):
     train_trans = T.Compose([T.Resize([720, 1280]), T.ToTensor(), normalize, ])
     # change the following directories to fit your needs
     if 'wildtrack' in args.dataset:
-        data_path = '/workspace/ABCDet/data/Wildtrack'
+        data_path = '/workspace/Data/Wildtrack'
         base = Wildtrack(data_path)
     elif 'multiviewx' in args.dataset:
-        data_path = '/workspace/ABCDet/data/MultiviewX'
+        data_path = '/workspace/Data/MultiviewX'
         base = MultiviewX(data_path)
     else:
         raise Exception('must choose from [wildtrack, multiviewx]')
@@ -102,7 +102,7 @@ def main(args):
         raise Exception('no support for this optimizer')
 
     if args.scheduler == 'OneCycleLR':
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, steps_per_epoch=len(train_loader),
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, final_div_factor=1, steps_per_epoch=len(train_loader),
                                                         epochs=args.epochs)
     elif args.scheduler == 'MultiStepLR':
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epochs * 0.5), int(args.epochs * 0.8)], gamma=0.1)
