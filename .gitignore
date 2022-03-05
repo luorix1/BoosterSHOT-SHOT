@@ -1,6 +1,10 @@
 # directories
 /logs
 /multiview_detector/__pycache__/
+/heatmap
+MultiviewDetector.pth
 
 # file types
 *.pyc
+
+__pycache__/
