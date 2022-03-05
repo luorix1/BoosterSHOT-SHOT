@@ -73,7 +73,7 @@ def main(args):
     if args.variant == 'default':
         model = DPerspTransDetector(train_set, args.arch, args.depth_scales)
     elif args.variant == 'BoosterSHOT':
-        model = BoosterSHOT(train_set, args.arch, args.depth_scales)
+        model = BoosterSHOT(train_set, args.arch, args.depth_scales, args.topk)
     elif args.variant == 'self':
         model = SRDPerspTransDetector(train_set, args.arch, args.depth_scales, args.use_GN)
     elif args.variant == 'custom':
@@ -208,6 +208,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_global', action='store_true')
     parser.add_argument('--use_GN', action='store_true')
     parser.add_argument('--use_SSM', action='store_true')
+    parser.add_argument('--topk', default=None)
     args = parser.parse_args()
 
     main(args)

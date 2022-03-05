@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 
 class BoosterSHOT(nn.Module):
-    def __init__(self, dataset, arch='resnet18', depth_scales=4):
+    def __init__(self, dataset, arch='resnet18', depth_scales=4, topk=None):
         super().__init__()
         self.depth_scales = depth_scales
         self.num_cam = dataset.num_cam
@@ -78,7 +78,7 @@ class BoosterSHOT(nn.Module):
             # 256 and 128 in second Conv2d should be refactored to be controlled by a single variable like the out_channel instances that come afterwards
             nn.Conv2d(128, 128, 3, padding=2, dilation=2)).to('cuda:0')
 
-        out_channel = 128
+        out_channel = 128 if topk is None else topk * self.depth_scales
 
         self.feat_before_concat = nn.Conv2d(out_channel, out_channel, 3, groups=self.depth_scales, padding=1).to('cuda:0')
 
@@ -86,7 +86,7 @@ class BoosterSHOT(nn.Module):
             f'{i}': SpatialGate().to('cuda:0')
             for i in range(self.depth_scales)
         })
-        self.cutoff = CutoffModule(out_channel, self.depth_scales).to('cuda:0')
+        self.cutoff = CutoffModule(out_channel, self.depth_scales, topk).to('cuda:0')
 
         self.map_classifier = nn.Sequential(nn.Conv2d(out_channel*self.num_cam+2, 512, 3, padding=1), nn.ReLU(),
                                             # # w/o large kernel
