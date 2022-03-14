@@ -9,14 +9,14 @@ class CutoffModule(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.depth_scales = depth_scales
-        self.topk = topk
+        self.topk = topk if topk is not None else self.input_dim // self.depth_scales
 
         self.channel_attn = ChannelGate(self.input_dim) if self.depth_scales == 1 else ExpandedChannelGate(self.input_dim, self.depth_scales)
     
     
     def forward(self, x):
         N, C, _, _ = x.shape
-        block_size = C // self.depth_scales if self.topk is None else self.topk
+        block_size = self.topk
 
         if self.depth_scales == 1:
             out_feat = self.channel_attn(x)

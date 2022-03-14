@@ -19,6 +19,7 @@ class BoosterSHOT(nn.Module):
         self.depth_scales = depth_scales
         self.num_cam = dataset.num_cam
         self.img_shape, self.reducedgrid_shape = dataset.img_shape, dataset.reducedgrid_shape
+        self.topk = int(topk) if topk is not None else None
         imgcoord2worldgrid_matrices = self.get_imgcoord2worldgrid_matrices(dataset.base.intrinsic_matrices,
                                                                            dataset.base.extrinsic_matrices,
                                                                            dataset.base.worldgrid2worldcoord_mat,
@@ -78,16 +79,18 @@ class BoosterSHOT(nn.Module):
             # 256 and 128 in second Conv2d should be refactored to be controlled by a single variable like the out_channel instances that come afterwards
             nn.Conv2d(128, 128, 3, padding=2, dilation=2)).to('cuda:0')
 
-        out_channel = 128 if topk is None else topk * self.depth_scales
+        self.cutoff = CutoffModule(128, self.depth_scales, self.topk).to('cuda:0')
 
-        self.feat_before_concat = nn.Conv2d(out_channel, out_channel, 3, groups=self.depth_scales, padding=1).to('cuda:0')
-
+        out_channel = 128 if topk is None else self.topk * self.depth_scales
+        
         self.spatial_attn = nn.ModuleDict({
             f'{i}': SpatialGate().to('cuda:0')
             for i in range(self.depth_scales)
         })
-        self.cutoff = CutoffModule(out_channel, self.depth_scales, topk).to('cuda:0')
 
+        out_channel = (out_channel // self.depth_scales) * self.depth_scales
+
+        self.feat_before_concat = nn.Conv2d(out_channel, out_channel, 3, groups=self.depth_scales, padding=1).to('cuda:0')
         self.map_classifier = nn.Sequential(nn.Conv2d(out_channel*self.num_cam+2, 512, 3, padding=1), nn.ReLU(),
                                             # # w/o large kernel
                                             # nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(),
@@ -114,10 +117,11 @@ class BoosterSHOT(nn.Module):
 
     def warp_perspective(self, img_feature_all):
         img_feature_all = self.feat_down(img_feature_all)
-        N, C, _, _ = img_feature_all.shape
+        
+        in_feat = self.cutoff(img_feature_all)
+        N, C, _, _ = in_feat.shape
         warped_feat_list = []
         block_size = C // self.depth_scales
-        in_feat = self.cutoff(img_feature_all)
 
         for i in range(self.depth_scales):
             feature_map = in_feat[:, block_size*i:block_size*(i+1), :, :]
