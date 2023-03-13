@@ -13,7 +13,7 @@ from multiview_detector.models.attn_module import SpatialGate
 import matplotlib.pyplot as plt
 
 
-class BoosterSHOT(nn.Module):
+class SpatialSHOT(nn.Module):
     def __init__(self, dataset, arch="resnet18", depth_scales=4, topk=None):
         super().__init__()
         self.depth_scales = depth_scales
@@ -96,8 +96,6 @@ class BoosterSHOT(nn.Module):
             nn.Conv2d(128, 128, 3, padding=2, dilation=2),
         ).to("cuda:0")
 
-        self.cutoff = CutoffModule(128, self.depth_scales, self.topk).to("cuda:0")
-
         out_channel = 128 if topk is None else self.topk * self.depth_scales
 
         self.spatial_attn = nn.ModuleDict(
@@ -142,19 +140,17 @@ class BoosterSHOT(nn.Module):
         self.ce = nn.CrossEntropyLoss(reduction="none")
 
     def warp_perspective(self, img_feature_all):
-
         img_feature_all = self.feat_down(img_feature_all)
-
-        in_feat = self.cutoff(img_feature_all)
-        N, C, _, _ = in_feat.shape
+        N, C, _, _ = img_feature_all.shape
         warped_feat_list = []
         block_size = C // self.depth_scales
 
         for i in range(self.depth_scales):
-            feature_map = in_feat[:, block_size * i : block_size * (i + 1), :, :]
+            feature_map = img_feature_all[
+                :, block_size * i : block_size * (i + 1), :, :
+            ]
             # feature_map = self.channel_attn[f'{i}'](feature_map)
             feature_map = self.spatial_attn[f"{i}"](feature_map)
-            breakpoint()
             out_feat = kornia.geometry.warp_perspective(
                 feature_map, self.proj_mats[i], self.reducedgrid_shape
             )
@@ -233,30 +229,3 @@ class BoosterSHOT(nn.Module):
             )
             ret = torch.cat([ret, rr], dim=1)
         return ret
-
-
-def test():
-    from multiview_detector.datasets.frameDataset import frameDataset
-    from multiview_detector.datasets.Wildtrack import Wildtrack
-    from multiview_detector.datasets.MultiviewX import MultiviewX
-    import torchvision.transforms as T
-    from torch.utils.data import DataLoader
-
-    transform = T.Compose(
-        [
-            T.Resize([720, 1280]),  # H,W
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
-    dataset = frameDataset(
-        Wildtrack(os.path.expanduser("~/Data/Wildtrack")), transform=transform
-    )
-    dataloader = DataLoader(dataset, 1, False, num_workers=0)
-    imgs, map_gt, imgs_gt, frame = next(iter(dataloader))
-    model = SRDPerspTransDetector(dataset)
-    map_res, img_res = model(imgs, visualize=True)
-
-
-if __name__ == "__main__":
-    test()

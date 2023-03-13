@@ -152,7 +152,7 @@ class SepDPerspTransDetector(nn.Module):
 
     #     for i in range(self.depth_scales):
     #         in_feat = self.feat_before_warp[f'{i}'](img_feature_all) * depth_select[:,i][:,None]
-    #         out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+    #         out_feat = kornia.geometry.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
     #         warped_feat += self.feat_before_merge[f'{i}'](out_feat)
     #     return warped_feat
 
@@ -161,7 +161,7 @@ class SepDPerspTransDetector(nn.Module):
     #     select_label = depth.argmax(dim=1)
     #     ce_loss = self.ce(depth, select_label)
     #     uncertainty = ce_loss / ce_loss.flatten(1).max(dim=1, keepdim=True).values.unsqueeze(-1)
-    #     uncertainty = kornia.warp_perspective(
+    #     uncertainty = kornia.geometry.warp_perspective(
     #         uncertainty[:,None], self.proj_mats[0], self.reducedgrid_shape)
     #     return uncertainty
 
@@ -173,7 +173,7 @@ class SepDPerspTransDetector(nn.Module):
         # uncertainty = self.get_uncertainty_score(depth_select) # [b*n,1,h,w]
         for i in range(self.depth_scales):
             in_feat = img_feature_all * depth_select[:, i][:, None]
-            out_feat = kornia.warp_perspective(
+            out_feat = kornia.geometry.warp_perspective(
                 in_feat, self.proj_mats[i][part_idx], self.reducedgrid_shape)
             # [b*n,c,h,w]
             warped_feat += self.feat_before_merge[f'{i}'](out_feat)
@@ -195,7 +195,7 @@ class SepDPerspTransDetector(nn.Module):
         # img_feature_all = self.feat_down(img_feature_all)
         imgs_result = self.img_classifier(img_feature_all)
         world_features = self.warp_perspective(img_feature_all, part_idx)
-        # world_features = kornia.warp_perspective(img_feature_all, self.proj_mats, self.reducedgrid_shape).to('cuda:0')
+        # world_features = kornia.geometry.warp_perspective(img_feature_all, self.proj_mats, self.reducedgrid_shape).to('cuda:0')
         # world_features = world_features.view([B,-1,*self.reducedgrid_shape])
 
         if part == 'left':

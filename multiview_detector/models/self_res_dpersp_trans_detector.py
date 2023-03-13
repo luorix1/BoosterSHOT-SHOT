@@ -141,7 +141,7 @@ class SRDPerspTransDetector(nn.Module):
         #     group_norm = nn.GroupNorm(self.depth_scales, img_feature_all.shape[1]).to('cuda:0')
         #     in_feat = group_norm(img_feature_all)
         #     in_feat = in_feat[:,i*S:(i+1)*S,:,:]
-        #     out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+        #     out_feat = kornia.geometry.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
         #     # for the first homography, re-initialize warped_feat with the output
         #     if i == 0:
         #         warped_feat = self.feat_before_merge_local[f'{i}'](out_feat)
@@ -151,14 +151,14 @@ class SRDPerspTransDetector(nn.Module):
         attn = self.channel_attn(img_feature_all)
         for i in range(self.depth_scales):
             in_feat = img_feature_all * attn[:, :, :, :, i]
-            out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+            out_feat = kornia.geometry.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
             warped_feat += self.feat_before_merge[f'{i}'](out_feat) # [b*n,c,h,w]
           
         # "global" path
         # allow use of Soft Selection Module like in SHOT
         for i in range(self.depth_scales):
             in_feat = img_feature_all * depth_select[:,i][:,None]
-            out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+            out_feat = kornia.geometry.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
             warped_feat += self.feat_before_merge_global[f'{i}'](out_feat) # [b*n,c,h,w]
 
         return warped_feat

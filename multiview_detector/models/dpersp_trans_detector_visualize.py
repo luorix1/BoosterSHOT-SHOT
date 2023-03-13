@@ -126,14 +126,14 @@ class DPerspTransDetector(nn.Module):
             for i in range(5):
                 plt.imsave(os.path.expanduser(
                     f'~/code/jupyter/dua/data/da/depth-f{j}-p{i}.png'), depth_select[j, i].detach().cpu().numpy(), cmap='Blues')
-                tt = kornia.warp_perspective(
+                tt = kornia.geometry.warp_perspective(
                     feat[None, None], self.proj_mats[i][j][None], self.reducedgrid_shape)[0, 0]
                 plt.imsave(os.path.expanduser(
                     f'~/code/jupyter/dua/data/da/feat-f{j}-p{i}.png'), tt.cpu().numpy(), cmap='Oranges')
 
         for i in range(self.depth_scales):
             in_feat = img_feature_all * depth_select[:, i][:, None]
-            out_feat = kornia.warp_perspective(
+            out_feat = kornia.geometry.warp_perspective(
                 in_feat, self.proj_mats[i], self.reducedgrid_shape)
             warped_feat_no_conv += out_feat
             # [b*n,c,h,w]
@@ -174,7 +174,7 @@ class DPerspTransDetector(nn.Module):
         t = torch.tensor(np.asarray(t).transpose([2, 0, 1]))[
             None].float().cuda()
         for i in range(5):
-            tt = kornia.warp_perspective(
+            tt = kornia.geometry.warp_perspective(
                 t, self.proj_mats[i][0][None], self.reducedgrid_shape)
             tt = tt[0].cpu().numpy().transpose([1, 2, 0]).astype('uint8')
             tt = Image.fromarray(tt)

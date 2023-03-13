@@ -144,7 +144,7 @@ class RDPerspTransDetector(nn.Module):
             S = img_feature_local.shape[1] // self.depth_scales
             for i in range(self.depth_scales):
                 in_feat = img_feature_local[:,i*S:(i+1)*S,:,:]
-                out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+                out_feat = kornia.geometry.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
                 # for the first homography, re-initialize warped_feat with the output
                 if i == 0:
                     warped_feat = self.feat_before_merge_local[f'{i}'](out_feat)
@@ -158,12 +158,12 @@ class RDPerspTransDetector(nn.Module):
             if self.use_SSM:
                 for i in range(self.depth_scales):
                     in_feat = img_feature_global * depth_select[:,i][:,None]
-                    out_feat = kornia.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
+                    out_feat = kornia.geometry.warp_perspective(in_feat, self.proj_mats[i], self.reducedgrid_shape)
                     warped_feat += self.feat_before_merge_global[f'{i}'](out_feat) # [b*n,c,h,w]
             # otherwise, just use the ground plane homography like in MVDet
             else:
                 in_feat = img_feature_global
-                out_feat = kornia.warp_perspective(in_feat, self.proj_mats[0], self.reducedgrid_shape)
+                out_feat = kornia.geometry.warp_perspective(in_feat, self.proj_mats[0], self.reducedgrid_shape)
                 warped_feat += self.feat_before_merge_global['0'](out_feat)
 
         return warped_feat

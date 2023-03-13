@@ -5,22 +5,28 @@ import torch.nn as nn
 import torch.nn.functional as F
 import kornia
 from torchvision.models.vgg import vgg11
+
 from multiview_detector.models.resnet import resnet18
+from multiview_detector.models.cutoff_module import CutoffModule
+from multiview_detector.models.attn_module import SpatialGate
 
 import matplotlib.pyplot as plt
 
 
-class IDPerspTransDetector(nn.Module):
-    def __init__(self, dataset, arch='resnet18', depth_scales=4):
+class SepBoosterSHOT(nn.Module):
+    def __init__(self, dataset, arch='resnet18', depth_scales=4, topk=None):
         super().__init__()
         self.depth_scales = depth_scales
         self.num_cam = dataset.num_cam
         self.img_shape, self.reducedgrid_shape = dataset.img_shape, dataset.reducedgrid_shape
+        self.topk = int(topk) if topk is not None else None
         imgcoord2worldgrid_matrices = self.get_imgcoord2worldgrid_matrices(dataset.base.intrinsic_matrices,
                                                                            dataset.base.extrinsic_matrices,
                                                                            dataset.base.worldgrid2worldcoord_mat,
                                                                            dataset.base.depth_margin)
-        self.coord_map = self.create_coord_map(self.reducedgrid_shape + [1])
+        self.reducedgrid_shape_part = [
+            self.reducedgrid_shape[0], self.reducedgrid_shape[1]//2]
+        self.coord_map = self.create_coord_map(self.reducedgrid_shape_part + [1])
         # img
         self.upsample_shape = list(
             map(lambda x: int(x / dataset.img_reduce), self.img_shape))
@@ -53,8 +59,8 @@ class IDPerspTransDetector(nn.Module):
             base[-1] = nn.Sequential()
             base[-4] = nn.Sequential()
             split = 10
-            self.base_pt1 = base[:split].to('cuda:0')
-            self.base_pt2 = base[split:].to('cuda:0')
+            self.base_pt1 = base[:split].to('cuda:1')
+            self.base_pt2 = base[split:].to('cuda:1')
             out_channel = 512
         elif arch == 'resnet18':
             base = nn.Sequential(*list(resnet18(
@@ -69,32 +75,32 @@ class IDPerspTransDetector(nn.Module):
         self.img_classifier = nn.Sequential(nn.Conv2d(out_channel, 64, 1), nn.ReLU(),
                                             nn.Conv2d(64, 2, 1, bias=False)).to('cuda:0')
 
-        self.down_output = 256
+        # The feat_down network 
         self.feat_down = nn.Sequential(
             nn.Conv2d(out_channel, 128, 3, padding=2, dilation=2), nn.ReLU(),
-            nn.Conv2d(128, self.down_output * 2, 3, padding=2, dilation=2)).to('cuda:0')
-        self.group_norm = nn.Sequential(nn.GroupNorm(self.depth_scales, self.down_output)).to('cuda:0')
+            # 256 and 128 in second Conv2d should be refactored to be controlled by a single variable like the out_channel instances that come afterwards
+            nn.Conv2d(128, 128, 3, padding=2, dilation=2)).to('cuda:0')
 
-        out_channel = self.down_output
+        self.cutoff = CutoffModule(128, self.depth_scales, self.topk).to('cuda:0')
 
-        self.feat_before_merge = nn.ModuleDict({
-            f'{i}': nn.Conv2d(out_channel // self.depth_scales, out_channel // self.depth_scales, 3, padding=1)
-            # f'{i}': nn.Conv2d(out_channel+1, out_channel, 3, padding=1)
+        out_channel = 128 if topk is None else self.topk * self.depth_scales
+        
+        self.spatial_attn = nn.ModuleDict({
+            f'{i}': SpatialGate().to('cuda:0')
             for i in range(self.depth_scales)
-        }).to('cuda:0')
+        })
 
-        self.map_classifier = nn.Sequential(nn.Conv2d(out_channel * self.num_cam + 2, 512, 3, padding=1), nn.ReLU(),
+        out_channel = (out_channel // self.depth_scales) * self.depth_scales
+
+        self.feat_before_concat = nn.Conv2d(out_channel, out_channel, 3, groups=self.depth_scales, padding=1).to('cuda:0')
+        self.map_classifier = nn.Sequential(nn.Conv2d(out_channel*self.num_cam//2+2, 512, 3, padding=1), nn.ReLU(),
                                             # # w/o large kernel
                                             # nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(),
                                             # nn.Conv2d(512, 1, 3, padding=1, bias=False)).to('cuda:0')
 
                                             # with large kernel
-                                            nn.Conv2d(
-                                                512, 512, 3, padding=2, dilation=2), nn.ReLU(),
+                                            nn.Conv2d(512, 512, 3, padding=2, dilation=2), nn.ReLU(),
                                             nn.Conv2d(512, 1, 3, padding=4,  dilation=4, bias=False)).to('cuda:0')
-
-        self.depth_classifier = nn.Sequential(nn.Conv2d(out_channel, 64, 1), nn.ReLU(),
-                                            nn.Conv2d(64, self.depth_scales, 1, bias=False)).to('cuda:0')
 
         self.coord_map = nn.Parameter(self.coord_map, False).to('cuda:0')
         self.trans_img = nn.Sequential(nn.AdaptiveAvgPool2d(
@@ -104,56 +110,54 @@ class IDPerspTransDetector(nn.Module):
         self.trans_img[1].weight.data = dataset.img_kernel.float()
         self.trans_img.to('cuda:0')
         self.trans_map = nn.Sequential(nn.AdaptiveAvgPool2d(
-            self.reducedgrid_shape), nn.Conv2d(2, 2, 41, padding=20, bias=False))
+            self.reducedgrid_shape_part), nn.Conv2d(2, 2, 41, padding=20, bias=False))
         for p in self.trans_map.parameters():
             p.requires_grad = False
         self.trans_map[1].weight.data = dataset.map_kernel.float()
         self.trans_map.to('cuda:0')
         self.mse = nn.MSELoss()
         self.ce = nn.CrossEntropyLoss(reduction='none')
+        self.part_cam_index = {'left': [0, 1, 5], 'right': [2, 3, 4]}
 
-    def warp_perspective(self, img_feature_all):
-        warped_feat = 0
+
+    def warp_perspective(self, img_feature_all, part_idx):
         img_feature_all = self.feat_down(img_feature_all)
-        input_size = img_feature_all.shape[1] // 2
-        depth_select = self.depth_classifier(img_feature_all[:,input_size: , :, :]).softmax(dim=1)
-        # local features
-        for i in range(self.depth_scales):
-            in_feat = img_feature_all[:, input_size // self.depth_scales * i : input_size // self.depth_scales * (i + 1), :, :]
-            out_feat = kornia.geometry.warp_perspective(
-                in_feat, self.proj_mats[i], self.reducedgrid_shape)
-            # [b*n,c,h,w]
-            if i == 0:
-                warped_feat = self.feat_before_merge[f'{i}'](out_feat)
-            else:
-                warped_feat = torch.cat((warped_feat, self.feat_before_merge[f'{i}'](out_feat)), dim=1)
-        # apply Group Normalization to local feature output
-        warped_feat = self.group_norm(warped_feat)
+        
+        in_feat = self.cutoff(img_feature_all)
+        N, C, _, _ = in_feat.shape
+        warped_feat_list = []
+        block_size = C // self.depth_scales
 
-        # global features
         for i in range(self.depth_scales):
-            in_feat = img_feature_all[:, input_size:, :, :] * depth_select[:, i][:, None]
+            feature_map = in_feat[:, block_size*i:block_size*(i+1), :, :]
+            # feature_map = self.channel_attn[f'{i}'](feature_map)
+            feature_map = self.spatial_attn[f'{i}'](feature_map)
             out_feat = kornia.geometry.warp_perspective(
-                in_feat, self.proj_mats[i], self.reducedgrid_shape)
-            # [b*n,c,h,w]
-            warped_feat += out_feat
-
+                feature_map, self.proj_mats[i][part_idx], self.reducedgrid_shape)
+            warped_feat_list.append(out_feat)
+        warped_feat = torch.cat(warped_feat_list, dim=1)
+        warped_feat = self.feat_before_concat(warped_feat)
         return warped_feat
 
-    def forward(self, imgs, imgs_gt=None, map_gt=None, alpha=0, visualize=False):
+    def forward(self, imgs, imgs_gt=None, map_gt=None, alpha=0, visualize=False, part='left'):
         # implemented assuming B=1
+        part_idx = self.part_cam_index[part]
+        imgs = imgs[:, part_idx]
         B, N, C, H, W = imgs.shape
-        img_feature_all = self.base_pt1(imgs.view([-1, C, H, W]).to('cuda:1'))
+        img_feature_all = self.base_pt1(imgs.view([-1,C,H,W]).to('cuda:1'))
         img_feature_all = self.base_pt2(img_feature_all.to('cuda:1'))
-        img_feature_all = F.interpolate(
-            img_feature_all, self.upsample_shape, mode='bilinear').to('cuda:0')
+        img_feature_all = F.interpolate(img_feature_all, self.upsample_shape, mode='bilinear').to('cuda:0')
         imgs_result = self.img_classifier(img_feature_all)
-        world_features = self.warp_perspective(img_feature_all)
-        world_features = torch.cat([world_features.view(
-            [B, -1, *self.reducedgrid_shape]), self.coord_map.repeat([B, 1, 1, 1])], dim=1)
+        world_features = self.warp_perspective(img_feature_all, part_idx)
+
+        if part == 'left':
+            s, e = 0, self.reducedgrid_shape[1]//2
+        else:
+            s, e = self.reducedgrid_shape[1]//2, self.reducedgrid_shape[1]
+        world_features = world_features[:, :, :, s:e]
+        world_features = torch.cat([world_features.view([B,-1, *self.reducedgrid_shape_part]), self.coord_map.repeat([B, 1, 1, 1])], dim=1)
         map_result = self.map_classifier(world_features)
-        map_result = F.interpolate(
-            map_result, self.reducedgrid_shape, mode='bilinear')
+        map_result = F.interpolate(map_result, self.reducedgrid_shape_part, mode='bilinear')
         if not self.training:
             return map_result, [i[None] for i in imgs_result]
         with torch.no_grad():
@@ -169,18 +173,14 @@ class IDPerspTransDetector(nn.Module):
             for i in range(self.depth_scales):
                 # intrinsic_matrices [4,4] @ extrinsic_matrices [4,4] @ worldgrid2worldcoord_mat [4,4]
                 # inv: worldgrid2worldcoord_mat-1 @ extrinsic_matrices-1 @ intrinsic_matrices-1
-                extrinsic_matrices[cam][:, 3] = extrinsic_matrices[cam][:,
-                                                                        3]+extrinsic_matrices[cam][:, 2]*i*depth_margin
-                worldcoord2imgcoord_mat = intrinsic_matrices[cam] @ np.delete(
-                    extrinsic_matrices[cam], 2, 1)
+                extrinsic_matrices[cam][:,3] = extrinsic_matrices[cam][:,3]+extrinsic_matrices[cam][:,2]*i*depth_margin
+                worldcoord2imgcoord_mat = intrinsic_matrices[cam] @ np.delete(extrinsic_matrices[cam], 2, 1)
                 worldgrid2imgcoord_mat = worldcoord2imgcoord_mat @ worldgrid2worldcoord_mat
                 imgcoord2worldgrid_mat = np.linalg.inv(worldgrid2imgcoord_mat)
                 # image of shape C,H,W (C,N_row,N_col); indexed as x,y,w,h (x,y,n_col,n_row)
                 # matrix of shape N_row, N_col; indexed as x,y,n_row,n_col
-                permutation_mat = np.array(
-                    [[0, 1, 0], [1, 0, 0], [0, 0, 1]])  # x->y, y->x
-                projection_matrices[(
-                    cam, i)] = permutation_mat @ imgcoord2worldgrid_mat
+                permutation_mat = np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]) # x->y, y->x
+                projection_matrices[(cam,i)] = permutation_mat @ imgcoord2worldgrid_mat
         return projection_matrices
 
     def create_coord_map(self, img_size, with_r=False):
@@ -190,8 +190,7 @@ class IDPerspTransDetector(nn.Module):
         grid_y = torch.from_numpy(grid_y / (H - 1) * 2 - 1).float()
         ret = torch.stack([grid_x, grid_y], dim=0).unsqueeze(0)
         if with_r:
-            rr = torch.sqrt(torch.pow(grid_x, 2) +
-                            torch.pow(grid_y, 2)).view([1, 1, H, W])
+            rr = torch.sqrt(torch.pow(grid_x, 2) + torch.pow(grid_y, 2)).view([1, 1, H, W])
             ret = torch.cat([ret, rr], dim=1)
         return ret
 
@@ -206,11 +205,10 @@ def test():
     transform = T.Compose([T.Resize([720, 1280]),  # H,W
                            T.ToTensor(),
                            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-    dataset = frameDataset(Wildtrack(os.path.expanduser(
-        '~/Data/Wildtrack')), transform=transform)
+    dataset = frameDataset(Wildtrack(os.path.expanduser('~/Data/Wildtrack')), transform=transform)
     dataloader = DataLoader(dataset, 1, False, num_workers=0)
     imgs, map_gt, imgs_gt, frame = next(iter(dataloader))
-    model = IDPerspTransDetector(dataset)
+    model = SRDPerspTransDetector(dataset)
     map_res, img_res = model(imgs, visualize=True)
 
 

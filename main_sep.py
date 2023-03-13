@@ -1,5 +1,6 @@
 import os
 
+
 os.environ['OMP_NUM_THREADS'] = '1'
 import argparse
 import sys
@@ -12,6 +13,7 @@ import torch.optim as optim
 import torchvision.transforms as T
 from multiview_detector.datasets import *
 from multiview_detector.loss.gaussian_mse import GaussianMSE
+from multiview_detector.models.sep_boostershot import SepBoosterSHOT
 from multiview_detector.models.sep_dpersp_trans_detector import SepDPerspTransDetector
 from multiview_detector.models.sep_persp_trans_detector import SepPerspTransDetector
 from multiview_detector.utils.logger import Logger
@@ -37,7 +39,7 @@ def main(args):
     denormalize = img_color_denormalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     train_trans = T.Compose([T.Resize([720, 1280]), T.ToTensor(), normalize, ])
     if 'multiviewx' in args.dataset:
-        data_path = os.path.expanduser('./data/MultiviewX')
+        data_path = os.path.expanduser('/workspace/Data/MultiviewX')
         base = MultiviewX(data_path)
     else:
         raise Exception('must choose from [multiviewx]')
@@ -56,6 +58,8 @@ def main(args):
             model.load_state_dict(torch.load(args.load))
     elif args.variant == 'per':
         model = SepPerspTransDetector(train_set, args.arch)
+    elif args.variant == 'boostershot':
+        model = SepBoosterSHOT(train_set, args.arch, args.depth_scales)
     else:
         raise Exception('no support for this variant')
 
@@ -90,7 +94,7 @@ def main(args):
     test_prec_s = []
     test_moda_s = []
 
-    if args.variant == 'default':
+    if args.variant == 'default' or 'boostershot':
         trainer = SepDPerspectiveTrainer(model, criterion, logdir, denormalize, args, args.cls_thres, args.alpha)
     elif args.variant == 'per':
         trainer = SepPerspectiveTrainer(model, criterion, logdir, denormalize, args.cls_thres, args.alpha)
@@ -135,7 +139,7 @@ if __name__ == '__main__':
     parser.add_argument('--cls_thres', type=float, default=0.4)
     parser.add_argument('--alpha', type=float, default=1.0, help='ratio for per view loss')
     parser.add_argument('--variant', type=str, default='default',
-                        choices=['default', 'per', 'img_proj', 'res_proj', 'no_joint_conv'])
+                        choices=['default', 'per', 'img_proj', 'res_proj', 'no_joint_conv', 'boostershot'])
     parser.add_argument('--arch', type=str, default='resnet18', choices=['vgg11', 'resnet18'])
     parser.add_argument('-d', '--dataset', type=str, default='multiviewx', choices=['wildtrack', 'multiviewx'])
     parser.add_argument('-j', '--num_workers', type=int, default=4)

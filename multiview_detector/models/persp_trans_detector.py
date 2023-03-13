@@ -87,7 +87,7 @@ class PerspTransDetector(nn.Module):
             imgs_result.append(img_res)
             proj_mat = self.proj_mats[cam].repeat(
                 [B, 1, 1]).float().to('cuda:0')
-            world_feature = kornia.warp_perspective(
+            world_feature = kornia.geometry.warp_perspective(
                 img_feature.to('cuda:0'), proj_mat, self.reducedgrid_shape)
             if visualize:
                 plt.imsave(os.path.expanduser(f'~/code/jupyter/dua/data/per/feat-f{cam}-per.png'),

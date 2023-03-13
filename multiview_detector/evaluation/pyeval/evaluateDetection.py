@@ -60,7 +60,7 @@ def evaluateDetection_py(res_fpath, gt_fpath, dataset_name):
     detAllMatrix = 0
     if detRaw is None or detRaw.shape[0] == 0:
         MODP, MODA, recall, precision = 0, 0, 0, 0
-        return MODP, MODA, recall, precision
+        return recall, precision, MODA, MODP
 
     for t in frames:
         idxs = np.where(gtRaw[:, 0] == t)
