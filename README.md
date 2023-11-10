@@ -1,10 +1,6 @@
-# SHOT
+# BoosterSHOT
 
-Our code is based on [MVDet](https://github.com/hou-yz/MVDet). Please see `README-mvdet.md` for installation and dataset preparation.
-
-# Our code
-
-- `multiview_detector/models/dpersp_trans_detector.py` is the implementation of our method.
-- `multiview_detector/models/dpersp_trans_detector_visualize.py` is for visualizing the feature maps in our method.
-
- 
+This is repository implements the HAM module implemented in BoosterSHOT within the premises of the official implementation of SHOT.
+Note that the following repositories also contain some code used for testing our method on the MVDet and MVDeTr frameworks.
+- https://github.com/luorix1/MVDeTr_research
+- https://github.com/luorix1/MVDet_research
